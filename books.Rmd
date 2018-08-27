@@ -1,0 +1,335 @@
+---
+title: "books"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(DT)
+library(knitr)
+library(grid)
+library(gridExtra)
+library(corrplot)
+library(qgraph)
+library(methods)
+library(Matrix)
+```
+
+```{r}
+library(tidyverse)
+rm(list=ls())
+
+load("~/dsfi/book_ratings.RData")
+load("~/dsfi/new_ratings.RData")
+
+#sorted_my_users <- as.character(unlist(book_ratings[,1]))
+#book_ratings <- as.matrix(book_ratings[,-1])
+#row.names(book_ratings) <- sorted_my_users
+
+```
+
+## User-based collaborative filtering
+What is the distribution of ratings?
+We see that people tend to give quite positive ratings to books. Most of the ratings are in the 3-5 range, while very few ratings are in the 1-2 range.
+```{r}
+
+
+set.seed(1)
+user_fraction <- 1
+users <- unique(book_ratings$User.ID)
+sample_users <- sample(users, round(user_fraction * length(users)))
+
+
+ratings <- book_ratings[book_ratings$User.ID %in% sample_users,]
+
+r<-ratings$Book.Rating
+x<-which(ratings$Book.Rating>0)
+r<-ratings[x,]
+r<-r$Book.Rating
+r<-as.data.frame(r)
+r %>% 
+  ggplot(aes(x = r, fill = factor(r))) +
+  geom_bar(color = "grey20") + scale_fill_brewer(palette = "YlGnBu") + guides(fill = FALSE)
+```
+
+Number of ratings per user
+As we filtered our ratings all users have at least 3 ratings. However, we can also see that are some users with many ratings. This is interesting, because we can later examine whether frequent raters rate books differently from less frequent raters. We will come back to this later.
+
+```{r}
+r<-ratings[x,]
+r %>% 
+  group_by(User.ID) %>% 
+  summarize(number_of_ratings_per_user = n()) %>% 
+  ggplot(aes(number_of_ratings_per_user)) + 
+  geom_bar(fill = "cadetblue3", color = "grey20") + coord_cartesian(c(3, 50))
+```
+
+Distribution of mean user ratings
+People have different tendencies to rate books. Some already give 5 stars to a mediocre book, while others do not give 5 stars unless it is the perfect book for them. Such tendencies can be seen in the figure below. On the right side there is a bump from users with a mean rating of 5, indicating that they really liked all books (or they only rated books they really like???). We can also see that there are nearly no notoriuous downvoters rating all books with a 1. Such tendencies are going to be important for collaborative filtering later, and are typically dealt with by subtracting the user???s mean rating from their ratings.
+
+```{r}
+r %>% 
+  group_by(User.ID) %>% 
+  summarize(mean_user_rating = mean(Book.Rating)) %>% 
+  ggplot(aes(mean_user_rating)) +
+  geom_histogram(fill = "cadetblue3", color = "grey20")
+```
+
+Number of ratings per book
+We can see that in the subsetted dataset most books have around 18-20 ratings
+```{r}
+r %>% 
+  group_by(ISBN) %>% 
+  summarize(number_of_ratings_per_book = n()) %>% 
+  ggplot(aes(number_of_ratings_per_book)) + 
+  geom_bar(fill = "orange", color = "grey20", width = 1) + coord_cartesian(c(50,200))
+```
+
+Distribution of mean book ratings
+Mean book ratings don???t reveal any peculiarities.
+```{r}
+r %>% 
+  group_by(ISBN) %>% 
+  summarize(mean_book_rating = mean(Book.Rating)) %>% 
+  ggplot(aes(mean_book_rating)) + geom_histogram(fill = "orange", color = "grey20") + coord_cartesian(c(1,10))
+```
+
+Top 10 rated books
+It is apparent that users seem to like a) Calvin and Hobbes in general, b) compilations of books. This makes sense intuitively as people won???t get interested in an entire compilation if they don???t like the individual books.
+
+```{r}
+str(r)
+r %>% 
+  group_by(ISBN) %>% 
+  summarize(number_of_ratings_per_book = n()) %>%
+  arrange( desc(number_of_ratings_per_book)) %>%
+  left_join(book_info,by = "ISBN")  %>%
+  head
+```
+
+Top 10 popular books
+By looking at the books that were rated most often we can get an impression of the popularity of a book. You can see the top 10 popular books in the table below.
+```{r}
+r %>% 
+  group_by(ISBN) %>%  
+  summarize(mean_book_rating = mean(Book.Rating)) %>% 
+  arrange( desc(mean_book_rating)) %>%
+  left_join(book_info,by = "ISBN")  %>%
+  head
+  
+```
+
+
+ADJUSTED COSINE SIMILARITY: Cosine similarity measure [24] does not consider the scenario in
+which different users use different rating scale. Adjusted cosine similarity solves it by subtracting the average
+rating provided by the user u. Adjusted cosine similarity considers the difference in rating scale used by each
+user. Adjusted cosine similarity is slightly different from Pearson Correlation; Pearson Correlation considers
+the average rating of user u for co-rated the items. Adjusted cosine similarity subtracts the average rating of
+user u for all the items rated by user u. 
+
+```{r}
+#users_readers <- function(user_id){
+ # rated_books<-NULL
+  #    rated_books<-new_ratings[user_id,which(new_ratings[user_id,1:150]>0)]
+      #colnames(rated_books)<-new_ratings[user_id,which(new_ratings[user_id,1:150]>0)]
+#}
+
+#user_books<-users_readers("9"
+
+
+dimension_names <- list(user_id = sort(unique(book_ratings$User.ID)), book_id = sort(unique(book_ratings$ISBN)))
+ratingmat <- spread(select(book_ratings, ISBN, User.ID, Book.Rating), ISBN, Book.Rating) %>% select(-User.ID)
+
+ratingmat <- as.matrix(ratingmat)
+orig_Rating_mat<-ratingmat
+dimnames(ratingmat) <- dimension_names
+orig_Rating_mat<-ratingmat
+
+ratingmat[1:5, ]
+```
+
+Step 1: Find similar users
+For this step we select users that have in common that they rated the same books. To make it easier let???s select one example user ???David??? (user_id: 277042). First we select users that rated at least one book that David also rated. In total there are 440 users who have at least one book in common.
+```{r}
+current_user <- "113270"
+ratingmat[ratingmat==0] <- NA
+rated_items <- which(!is.na((as.data.frame(ratingmat[current_user, ]))))
+selected_users <- names(which(apply(!is.na(ratingmat[ ,rated_items]), 1, sum) > 2))
+head(selected_users, 40)
+```
+
+For these users, we can calculate the similarity of their ratings with ???David??? s ratings. There is a number of options to calculate similarity. Typically cosine similarity or pearson???s correlation coefficient are used. Here, I chose pearson???s correlation. We would now go through all the selected users and calculate the similarity between their and David???s ratings. Below I do this for 2 users (user_ids: 1339 and 21877) for illustration. We can see that similarity is higher for user 1339 than user 21877
+
+```{r}
+user1 <- data.frame(item=colnames(ratingmat),rating=ratingmat[current_user,]) %>% filter(!is.na(rating))
+user2 <- data.frame(item=colnames(ratingmat),rating=ratingmat["204864",]) %>% filter(!is.na(rating))
+tmp<-merge(user1, user2, by="item")
+tmp
+
+
+cor( tmp$rating.y,tmp$rating.x, use="pairwise.complete.obs")
+
+```
+To reduce the influence of interindividual differences in mean ratings (as discussed in the EDA section), you can normalize the a user???s ratings by subtracting the users mean from all individual ratings. For example if a user rates 5 books with 1, 2, 3, 4, 5 his ratings would become -2, -1, 0, 1, 2.
+```{r}
+rmat <- ratingmat[selected_users, ]
+user_mean_ratings <- rowMeans(rmat,na.rm=T)
+rmat <- rmat - user_mean_ratings
+```
+We can calculate the similarity of all others users with David and sort them according to the highest similarity.
+
+```{r}
+similarities <- cor(t(rmat[rownames(rmat)!=current_user, ]), rmat[current_user, ], use = 'pairwise.complete.obs')
+sim <- as.vector(similarities)
+names(sim) <- rownames(similarities)
+res <- sort(sim, decreasing = TRUE)
+head(res, 15)
+
+
+
+
+```
+Visualizing similarities between users
+Similarities between users can be visualized using the qpraph package. The width of the graph???s edges correspond to similarity (blue for positive correlations, red for negative correlations).
+
+
+```{r}
+sim_mat <- cor(t(rmat), use = 'pairwise.complete.obs')
+random_users <- selected_users[1:10]
+qgraph(sim_mat[c(current_user, random_users), c(current_user, random_users)], layout = "spring", vsize = 5, theme = "TeamFortress", labels = c(current_user, random_users))
+```
+Step 2: Get predictions for other books
+In order to get recommendations for our user we would take the most similar users (e.g. 4) and average their ratings for books David has not yet rated. To make these averages more reliable you could also only include items that have been rated by multiple other similar users.
+
+```{r}
+current_user <- "113270"
+ratingmat[ratingmat==0] <- NA
+rated_items <- which(!is.na((as.data.frame(ratingmat[current_user, ]))))
+selected_users <- names(which(apply(!is.na(ratingmat[ ,rated_items]), 1, sum) >= 2))
+
+similar_users <- names(res[1:length(res)])
+
+similar_users_ratings <- data.frame(ISBN = rep(colnames(rmat), length(similar_users)), rating = c(t(as.data.frame(rmat[similar_users,])))) %>% filter(!is.na(rating))
+
+current_user_ratings <- data.frame(ISBN = colnames(rmat), rating = rmat[current_user,]) %>% filter(!is.na(rating))
+
+predictions <- similar_users_ratings %>% 
+  filter(!(ISBN %in% current_user_ratings$item)) %>% 
+  group_by(ISBN) %>% summarize(mean_rating = mean(rating)) %>%
+  arrange( desc(mean_rating)) %>%
+  left_join(book_info,by = "ISBN")
+predictions
+
+```
+cosine similarity
+```{r}
+
+```
+
+
+Compare users based on the books they have read
+```{r}
+user_rat[c(4,25,16),]
+```
+
+### Recommending movies for a single user
+The basic idea is now to recommend what's popular by adding up the number of users that have seen each movie, but *to weight each user by their similarity to user 149*. 
+
+Because a rating of zero implies that the user has read the book and not rated it, we will remove this books from the recommended list.
+
+
+```{r}
+
+rm(list=ls())
+
+load("~/dsfi/book_ratings.RData")
+load("~/dsfi/new_ratings.RData")
+
+dimension_names <- list(user_id = sort(unique(book_ratings$User.ID)), book_id = sort(unique(book_ratings$ISBN)))
+ratingmat <- spread(select(book_ratings, ISBN, User.ID, Book.Rating), ISBN, Book.Rating) %>% select(-User.ID)
+
+ratingmat <- as.matrix(ratingmat)
+orig_Rating_mat<-ratingmat
+dimnames(ratingmat) <- dimension_names
+orig_Rating_mat<-ratingmat
+
+cosine_sim <- function(a, b){crossprod(a, b) / sqrt(crossprod(a) * crossprod(b))}
+
+us<-"113270"
+######################### SIMILAR USERS FUNCTION  #################################
+sim_users<-function(user_id,ratingmat){
+  ratingmat[ratingmat==0] <- NA
+rated_items <- which(!is.na((as.data.frame(ratingmat[user_id, ]))))
+selected_users <- names(which(apply(!is.na(ratingmat[ ,rated_items]), 1, sum) > 2))
+
+user_rat<-ratingmat[selected_users,rated_items]
+user_rat[is.na(user_rat)] <- 0
+
+user_similarities = matrix(0, nrow = 1, ncol = length(selected_users))
+  for (j in 1:length(selected_users)) {
+    
+
+    user_similarities[j] <- cosine_sim(ratingmat[user_id,rated_items], user_rat[selected_users[j],])
+  }
+colnames(user_similarities)<-selected_users
+user_similarities<-t(user_similarities)
+colnames(user_similarities)<-"user"
+
+return(user_similarities)
+}
+user_similarities<-sim_users(us,ratingmat)
+
+```
+
+FUNCTION FOR READ BOOKS
+```{r}
+unread_books<-function(user_id,ratingmat){
+  unread_books<-which(is.na(ratingmat[user_id,]))
+  unread_books<-names(unread_books)
+  return(unread_books)
+
+}
+unread_books<-unread_books(us,ratingmat)
+```
+
+```{r}
+user_based_recommendations <- function(user_id, user_similarities,unread_books,orig_rating){
+
+user_similarities<-as.matrix(user_similarities)
+
+books_yet<-orig_rating[rownames(user_similarities),unread_books]
+l<-ncol(books_yet)
+book_yet_Rate<-NULL
+books_yet[is.na(books_yet)] <- 0
+for (i in 1:l){
+  book_yet_Rate[i]<-user_similarities[,1] %*% books_yet[,i]
+  books_Recc<-cbind(colnames(books_yet),book_yet_Rate)
+
+}
+colnames(books_Recc)<-c("ISBN", "recommendation")
+as.data.frame(books_Recc)
+
+
+
+books_Recc<-as.data.frame(books_Recc)
+book_info<-as.data.frame(book_info)
+books_Reccc<-left_join(books_Recc,book_info,by="ISBN")
+ recommendations<-sapply(books_Recc[,2], function(x) as.numeric(as.character(x))) 
+ books_Rec<-cbind(recommendations,books_Reccc)
+books_Recc<- arrange(as.data.frame(books_Rec)
+,desc(recommendations) )
+books_Recc<-books_Recc[,-3]
+
+return(books_Recc)
+}
+
+user_based_recommendations(us,user_similarities, unread_books,ratingmat)
+```
+
+## Item-based collaborative filtering
