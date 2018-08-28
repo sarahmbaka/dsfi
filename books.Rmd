@@ -227,16 +227,6 @@ predictions <- similar_users_ratings %>%
 predictions
 
 ```
-cosine similarity
-```{r}
-
-```
-
-
-Compare users based on the books they have read
-```{r}
-user_rat[c(4,25,16),]
-```
 
 ### Recommending movies for a single user
 The basic idea is now to recommend what's popular by adding up the number of users that have seen each movie, but *to weight each user by their similarity to user 149*. 
@@ -289,13 +279,13 @@ user_similarities<-sim_users(us,ratingmat)
 
 FUNCTION FOR READ BOOKS
 ```{r}
-unread_books<-function(user_id,ratingmat){
+unread_books_func<-function(user_id,ratingmat){
   unread_books<-which(is.na(ratingmat[user_id,]))
   unread_books<-names(unread_books)
   return(unread_books)
 
 }
-unread_books<-unread_books(us,ratingmat)
+unread_books<-unread_books_func("113270",orig_Rating_mat)
 ```
 
 ```{r}
@@ -333,3 +323,68 @@ user_based_recommendations(us,user_similarities, unread_books,ratingmat)
 ```
 
 ## Item-based collaborative filtering
+
+```{r}
+# transpose the viewed_movies matrix
+
+ratingmat[ratingmat==0] <- NA
+ratingmat[is.na(ratingmat)] <- 0
+
+
+books_user <- t(ratingmat)
+books_userr<-as.data.frame(books_user)
+n<-nrow(books_userr)
+# get all similarities between MOVIES
+book_similarities = matrix(0, nrow = n, ncol = n)
+# for (i in 1:n) {
+ #  for (j in (i + 1):n) {
+ #    book_similarities[i,j] <- cosine_sim(ratingmat[,i], ratingmat[,j])
+ #  }
+# }
+book_similarities <- book_similarities + t(book_similarities)
+diag(book_similarities) <- 0
+row.names(book_similarities) <- colnames(ratingmat)
+colnames(book_similarities) <- colnames(ratingmat)
+```
+
+```{r}
+as.data.frame(sort(book_similarities[,"0385722206"], decreasing = TRUE))
+
+
+item_based_recommendations <- function(user_id, user_similarities,unread_books,orig_rating){
+
+user_similarities<-as.matrix(user_similarities)
+
+books_yet<-orig_rating[rownames(user_similarities),unread_books]
+#books_yet<-t(books_yet)
+l<-ncol(books_yet)
+book_yet_Rate<-NULL
+books_yet[is.na(books_yet)] <- 0
+for (i in 1:l){
+  book_yet_Rate[i]<-user_similarities[,1] %*% books_yet[,i]
+  books_Recc<-cbind(colnames(books_yet),book_yet_Rate)
+
+}
+colnames(books_Recc)<-c("ISBN", "recommendation")
+as.data.frame(books_Recc)
+
+
+
+books_Recc<-as.data.frame(books_Recc)
+book_info<-as.data.frame(book_info)
+books_Reccc<-left_join(books_Recc,book_info,by="ISBN")
+ recommendations<-sapply(books_Recc[,2], function(x) as.numeric(as.character(x))) 
+ books_Rec<-cbind(recommendations,books_Reccc)
+books_Recc<- arrange(as.data.frame(books_Rec)
+,desc(recommendations) )
+books_Recc<-books_Recc[,-3]
+
+return(books_Recc)
+}
+unread_books<-unread_books_func("114544",orig_Rating_mat)
+
+user_based_recommendations("21014",sim_users("21014",ratingmat), unread_books_func("21014",orig_Rating_mat),orig_Rating_mat)
+```
+
+## Collaborative filtering with matrix factorization 
+
