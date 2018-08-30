@@ -252,10 +252,11 @@ orig_Rating_mat<-ratingmat
 cosine_sim <- function(a, b){crossprod(a, b) / sqrt(crossprod(a) * crossprod(b))}
 
 us<-"113270"
+library(recommender.mbaka)
 ######################### SIMILAR USERS FUNCTION  #################################
 sim_users<-function(user_id,ratingmat){
   ratingmat[ratingmat==0] <- NA
-rated_items <- which(!is.na((as.data.frame(ratingmat[user_id, ]))))
+rated_items <- which(!is.na((as.data.frame(ratingmat["113270", ]))))
 selected_users <- names(which(apply(!is.na(ratingmat[ ,rated_items]), 1, sum) > 2))
 
 user_rat<-ratingmat[selected_users,rated_items]
@@ -265,7 +266,7 @@ user_similarities = matrix(0, nrow = 1, ncol = length(selected_users))
   for (j in 1:length(selected_users)) {
     
 
-    user_similarities[j] <- cosine_sim(ratingmat[user_id,rated_items], user_rat[selected_users[j],])
+    user_similarities[7] <- cosine_sim(ratingmat["113270",rated_items], user_rat[selected_users[7],])
   }
 colnames(user_similarities)<-selected_users
 user_similarities<-t(user_similarities)
@@ -285,7 +286,7 @@ unread_books_func<-function(user_id,ratingmat){
   return(unread_books)
 
 }
-unread_books<-unread_books_func("113270",orig_Rating_mat)
+unread_books<-unread_books_func("113270",ratingmat)
 ```
 
 ```{r}
@@ -387,4 +388,48 @@ user_based_recommendations("21014",sim_users("21014",ratingmat), unread_books_fu
 ```
 
 ## Collaborative filtering with matrix factorization 
+
+```{r}
+library('NNLM')
+
+mat_fact<-nnmf(ratingmat,k=3,loss = c("mse"),alpha = rep(0, 3),method = c("scd"))
+mse_<-NULL
+for  (i in 1:20){
+  mse_[i]<-nnmf(ratingmat,k=i,loss = c("mse"),alpha = rep(0, 3),method = c("scd"))$mse
+
+}
+mse_
+
+plot(1:20,mse_,type="l")
+```
+
+```{r}
+new_user <- data.frame(ISBN= c("0345361792","0804114986","0440222656","0684872153","0553279912"), Book.Rating = c( 5, 3,9,9,8))
+
+new_recommendation<-function(new_user, ratingmat, method){
+  user_id="0000"
+  ratingmatt<-ratingmat
+new<-matrix(NA,nrow=1,ncol = ncol(ratingmatt))
+colnames(new)<-colnames(ratingmatt)
+row.names(new)<-user_id
+ratingmatt<-rbind(ratingmat,new)
+ratingmatt[user_id,as.matrix(new_user$ISBN)[,1]]<-new_user$Book.Rating
+ratingmatt["0000",]
+user_similarities<-sim_users(user_id,ratingmatt)
+unread_books<-unread_books_func(user_id,ratingmatt)
+if (method=="user"){
+  x<-user_based_recommendations(user_id, user_similarities,unread_books,ratingmatt)
+}
+else if (method=="item"){
+    x<-item_based_recommendations(user_id, user_similarities,unread_books,ratingmatt)
+
+}
+
+return(x)
+}
+
+x<-new_recommendation(new_user,ratingmat,method = "item" )
+
+
+```
 
